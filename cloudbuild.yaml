@@ -1,0 +1,143 @@
+steps:
+  # Step 1: Build and push database image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'us-central1-docker.pkg.dev/sukrit-singh-426716/my-repo/database:v1', './database']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'us-central1-docker.pkg.dev/sukrit-singh-426716/my-repo/database:v1']
+
+  # Step 2: Build and push backend image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'us-central1-docker.pkg.dev/sukrit-singh-426716/my-repo/backend:v1', './backend']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'us-central1-docker.pkg.dev/sukrit-singh-426716/my-repo/backend:v1']
+
+  # Step 3: Build and push frontend image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'us-central1-docker.pkg.dev/sukrit-singh-426716/my-repo/frontend:v1', './frontend']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'us-central1-docker.pkg.dev/sukrit-singh-426716/my-repo/frontend:v1']
+
+  # Step 4: Create Kubernetes manifests
+  - name: 'bash'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        mkdir -p kubernetes-manifests
+        
+        cat <<EOF > kubernetes-manifests/backend.yaml
+        ---
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: backend
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app: backend
+          template:
+            metadata:
+              labels:
+                app: backend
+            spec:
+              initContainers:
+                - name: wait-for-mongodb
+                  image: busybox
+                  command: ['sh', '-c', 'until nc -z mongodb-service 27017; do echo waiting for mongodb; sleep 2; done;']
+              containers:
+                - name: backend
+                  image: us-central1-docker.pkg.dev/sukrit-singh-426716/my-repo/backend:v1
+                  ports:
+                    - containerPort: 5000
+                  env:
+                    - name: MONGO_HOST
+                      value: "mongodb-service"
+        ---
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: backend-service
+        spec:
+          selector:
+            app: backend
+          ports:
+            - port: 5000
+              targetPort: 5000
+        EOF
+
+        cat <<EOF > kubernetes-manifests/database.yaml
+        ---
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: mongodb
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app: mongodb
+          template:
+            metadata:
+              labels:
+                app: mongodb
+            spec:
+              containers:
+                - name: mongodb
+                  image: us-central1-docker.pkg.dev/sukrit-singh-426716/my-repo/database:v1
+                  ports:
+                    - containerPort: 27017
+        ---
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: mongodb-service
+        spec:
+          selector:
+            app: mongodb
+          ports:
+            - port: 27017
+              targetPort: 27017
+        EOF
+
+        cat <<EOF > kubernetes-manifests/frontend.yaml
+        ---
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: frontend
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app: frontend
+          template:
+            metadata:
+              labels:
+                app: frontend
+            spec:
+              containers:
+                - name: frontend
+                  image: us-central1-docker.pkg.dev/sukrit-singh-426716/my-repo/frontend:v1
+                  ports:
+                    - containerPort: 80
+        ---
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: frontend
+        spec:
+          type: LoadBalancer
+          ports:
+            - port: 80
+          selector:
+            app: frontend
+        EOF
+
+  # Step 5: Deploy to GKE
+  - name: 'gcr.io/cloud-builders/kubectl'
+    args: ['apply', '-f', 'kubernetes-manifests/']
+    env:
+      - 'CLOUDSDK_COMPUTE_ZONE=us-central1'
+      - 'CLOUDSDK_CONTAINER_CLUSTER=my-gke-cluster'
+
