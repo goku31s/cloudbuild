@@ -61,11 +61,12 @@ steps:
         metadata:
           name: backend-service
         spec:
-          selector:
-            app: backend
+          type: LoadBalancer
           ports:
             - port: 5000
               targetPort: 5000
+          selector:
+            app: backend
         EOF
 
         cat <<EOF > kubernetes-manifests/database.yaml
