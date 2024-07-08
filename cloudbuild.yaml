@@ -1,3 +1,5 @@
+logsBucket: 'gs://bucket67ut'
+
 steps:
   # Step 1: Build and push database image
   - name: 'gcr.io/cloud-builders/docker'
